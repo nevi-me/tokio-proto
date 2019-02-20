@@ -6,9 +6,9 @@ use streaming::{Body, Message};
 use util::client_proxy::{self, ClientProxy, Receiver};
 use futures::{Future, IntoFuture, Poll, Async, Stream};
 use futures::sync::oneshot;
-use futures::future::Executor;
 use std::io;
 use std::collections::HashMap;
+use tokio::runtime::current_thread;
 
 /// A streaming, multiplexed client protocol.
 ///
@@ -61,8 +61,7 @@ impl<P, T, B> BindClient<StreamingMultiplex<B>, T> for P where
 
     type BindClient = ClientProxy<Self::ServiceRequest, Self::ServiceResponse, Self::ServiceError>;
 
-    fn bind_client<E>(&self, executor: &E, io: T) -> Self::BindClient
-        where E: Executor<Box<Future<Item = (), Error = ()>>>
+    fn bind_client(&self, io: T) -> Self::BindClient
     {
         let (client, rx) = client_proxy::pair();
 
@@ -80,13 +79,14 @@ impl<P, T, B> BindClient<StreamingMultiplex<B>, T> for P where
         });
 
         // Spawn the task
-        executor.execute(Box::new(task))
-            .expect("failed to spawn task");
+        current_thread::spawn(task);
 
         // Return the client
         client
     }
 }
+
+type InFlightMap<ServiceResponse, Error> = HashMap<RequestId, oneshot::Sender<Result<ServiceResponse, Error>>>;
 
 struct Dispatch<P, T, B> where
     P: ClientProto<T> + BindClient<StreamingMultiplex<B>, T>,
@@ -95,7 +95,7 @@ struct Dispatch<P, T, B> where
 {
     transport: P::Transport,
     requests: Receiver<P::ServiceRequest, P::ServiceResponse, P::Error>,
-    in_flight: HashMap<RequestId, oneshot::Sender<Result<P::ServiceResponse, P::Error>>>,
+    in_flight: InFlightMap<P::ServiceResponse, P::Error>,
     next_request_id: u64,
 }
 

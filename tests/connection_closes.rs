@@ -1,7 +1,6 @@
 extern crate bytes;
 extern crate futures;
-extern crate tokio_core;
-extern crate tokio_io;
+extern crate tokio;
 extern crate tokio_proto;
 extern crate tokio_service;
 
@@ -14,9 +13,9 @@ use std::time::Duration;
 
 use bytes::BytesMut;
 use futures::Future;
-use tokio_core::reactor::Core;
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{Decoder, Encoder, Framed};
+use tokio::runtime::current_thread::Runtime;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::codec::{Decoder, Encoder, Framed};
 use tokio_proto::TcpClient;
 use tokio_proto::pipeline::ClientProto;
 use tokio_service::Service;
@@ -62,7 +61,7 @@ where
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(DummyCodec))
+        Ok(DummyCodec.framed(io))
     }
 }
 
@@ -97,19 +96,18 @@ fn start_server(address: SocketAddr) -> Arc<Mutex<bool>> {
     finished_clone
 }
 
-fn send_message(reactor: &mut Core, address: &SocketAddr) {
+fn send_message(reactor: &mut Runtime, address: &SocketAddr) {
     // Give some time for server to start
     thread::sleep(Duration::from_millis(1000));
 
-    let handle = reactor.handle();
     let client = TcpClient::new(DummyProtocol);
-    let connect = client.connect(address, &handle);
+    let connect = client.connect(address);
 
     let send = connect.and_then(|connection| {
         connection.call("hello".as_bytes().iter().cloned().collect())
     });
 
-    reactor.run(send).unwrap();
+    reactor.block_on(send).unwrap();
 }
 
 fn check_server_has_finished(finished: Arc<Mutex<bool>>) {
@@ -124,7 +122,7 @@ fn reactor_is_dropped() {
     let finished = start_server(address.clone());
 
     {
-        let mut reactor = Core::new().unwrap();
+        let mut reactor = Runtime::new().unwrap();
 
         send_message(&mut reactor, &address);
     }
@@ -139,7 +137,7 @@ fn reactor_is_not_dropped() {
     let address: SocketAddr = "127.0.0.1:55137".parse().unwrap();
     let finished = start_server(address.clone());
 
-    let mut reactor = Core::new().unwrap();
+    let mut reactor = Runtime::new().unwrap();
 
     send_message(&mut reactor, &address);
 

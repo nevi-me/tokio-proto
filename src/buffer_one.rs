@@ -39,7 +39,7 @@ impl<S: Sink> BufferOne<S> {
             return Async::Ready(());
         }
 
-        self.task = Some(task::park());
+        self.task = Some(task::current());
         Async::NotReady
     }
 
@@ -51,8 +51,9 @@ impl<S: Sink> BufferOne<S> {
             }
 
             // Unpark any pending tasks
-            self.task.take()
-                .map(|t| t.unpark());
+            if let Some(task) = self.task.take() {
+                task.notify();
+            };
         }
 
         Ok(Async::Ready(()))

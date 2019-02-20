@@ -26,9 +26,8 @@ futures = "0.1.21"
 log = "0.4"
 net2 = "0.2"
 smallvec = "0.4.0"
-tokio-core = "0.1.16"
+tokio = "0.1"
 tokio-service = "0.1"
-tokio-io = "0.1"
 
 [dev-dependencies]
 bytes = "0.4"
@@ -36,3 +35,6 @@ env_logger = "0.5"
 lazycell = "0.6"
 mio = "0.6"
 rand = "0.4"
+
+[features]
+strict = []

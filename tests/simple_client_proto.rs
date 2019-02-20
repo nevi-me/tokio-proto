@@ -1,8 +1,7 @@
 extern crate futures;
-extern crate tokio_core;
 extern crate tokio_proto;
 extern crate tokio_service;
-extern crate tokio_io;
+extern crate tokio;
 extern crate bytes;
 
 use std::str;
@@ -10,9 +9,8 @@ use std::io::{self, ErrorKind};
 
 use bytes::{BytesMut, BufMut};
 use futures::{Future};
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{Encoder, Decoder, Framed};
-use tokio_core::reactor::Core;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::codec::{Encoder, Decoder, Framed};
 use tokio_proto::pipeline::ClientProto;
 use tokio_proto::TcpClient;
 
@@ -88,7 +86,7 @@ impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for IntProto {
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(IntCodec))
+        Ok(IntCodec.framed(io))
     }
 }
 
@@ -99,9 +97,8 @@ fn is_clone<T: Clone>(_: &T) {
 fn test_clone() {
     // Don't want the code to run, only compile
     if false {
-        let core = Core::new().unwrap();
         let builder = TcpClient::new(IntProto);
-        let service = builder.connect(&"127.0.0.1:12345".parse().unwrap(), &core.handle()).wait().unwrap();
+        let service = builder.connect(&"127.0.0.1:12345".parse().unwrap()).wait().unwrap();
         is_clone(&service);
     }
 }

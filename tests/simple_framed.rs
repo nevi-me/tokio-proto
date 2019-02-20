@@ -1,21 +1,22 @@
 extern crate futures;
-extern crate tokio_core;
+extern crate tokio;
 extern crate tokio_proto;
 extern crate tokio_service;
-extern crate tokio_io;
 extern crate bytes;
 
 use std::io;
 
 use bytes::BytesMut;
-use futures::BoxFuture;
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{Encoder, Decoder, Framed};
+use futures::Future;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::codec::{Encoder, Decoder, Framed};
 use tokio_proto::TcpServer;
 use tokio_proto::streaming::{Message, Body};
 use tokio_proto::streaming::pipeline;
 use tokio_proto::streaming::multiplex;
 use tokio_service::Service;
+
+type BoxFuture<I, E> = Box<dyn Future<Item = I, Error = E>>;
 
 #[derive(Default)]
 struct PipelineCodec;
@@ -71,7 +72,7 @@ impl<T: AsyncRead + AsyncWrite + 'static> pipeline::ServerProto<T> for PipelineP
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(PipelineCodec))
+        Ok(PipelineCodec.framed(io))
     }
 }
 
@@ -87,7 +88,7 @@ impl<T: AsyncRead + AsyncWrite + 'static> multiplex::ServerProto<T> for Multiple
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(MultiplexCodec))
+        Ok(MultiplexCodec.framed(io))
     }
 }
 

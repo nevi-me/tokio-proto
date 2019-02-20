@@ -70,16 +70,19 @@
 //! - Spinning up this service on a local port (in `main`).
 //!
 //! ```no_run
+//! extern crate bytes;
 //! extern crate futures;
-//! extern crate tokio_core;
+//! extern crate tokio;
 //! extern crate tokio_proto;
 //! extern crate tokio_service;
 //!
 //! use std::str;
 //! use std::io::{self, ErrorKind, Write};
 //!
-//! use futures::{future, Future, BoxFuture};
-//! use tokio_core::io::{Io, Codec, Framed, EasyBuf};
+//! use bytes::BytesMut;
+//! use futures::{future, Future};
+//! use tokio::codec::{Framed, Encoder, Decoder};
+//! use tokio::io::{AsyncRead, AsyncWrite};
 //! use tokio_proto::TcpServer;
 //! use tokio_proto::pipeline::ServerProto;
 //! use tokio_service::Service;
@@ -98,20 +101,20 @@
 //!        .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?)
 //! }
 //!
-//! impl Codec for IntCodec {
-//!     type In = u64;
-//!     type Out = u64;
+//! impl Decoder for IntCodec {
+//!     type Item = u64;
+//!     type Error = io::Error;
 //!
 //!     // Attempt to decode a message from the given buffer if a complete
 //!     // message is available; returns `Ok(None)` if the buffer does not yet
 //!     // hold a complete message.
-//!     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<u64>, io::Error> {
-//!         if let Some(i) = buf.as_slice().iter().position(|&b| b == b'\n') {
+//!     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<u64>, io::Error> {
+//!         if let Some(i) = buf[..].iter().position(|&b| b == b'\n') {
 //!             // remove the line, including the '\n', from the buffer
-//!             let full_line = buf.drain_to(i + 1);
+//!             let full_line = buf.split_to(i + 1);
 //!
 //!             // strip the'`\n'
-//!             let slice = &full_line.as_slice()[..i];
+//!             let slice = &full_line[..i];
 //!
 //!             Ok(Some(parse_u64(slice)?))
 //!         } else {
@@ -121,12 +124,19 @@
 //!
 //!     // Attempt to decode a message assuming that the given buffer contains
 //!     // *all* remaining input data.
-//!     fn decode_eof(&mut self, buf: &mut EasyBuf) -> io::Result<u64> {
+//!     fn decode_eof(&mut self, buf: &mut BytesMut) -> io::Result<Option<u64>> {
 //!         let amt = buf.len();
-//!         Ok(parse_u64(buf.drain_to(amt).as_slice())?)
+//!         Ok(Some(parse_u64(&buf.split_to(amt)[..])?))
 //!     }
+//! }
 //!
-//!     fn encode(&mut self, item: u64, into: &mut Vec<u8>) -> io::Result<()> {
+//! impl Encoder for IntCodec {
+//!     type Item = u64;
+//!     type Error = io::Error;
+//! 
+//!     fn encode(&mut self, item: u64, into: &mut BytesMut) -> io::Result<()> {
+//!         use std::fmt::Write;
+//! 
 //!         writeln!(into, "{}", item);
 //!         Ok(())
 //!     }
@@ -136,14 +146,14 @@
 //!
 //! pub struct IntProto;
 //!
-//! impl<T: Io + 'static> ServerProto<T> for IntProto {
+//! impl<T: 'static + AsyncRead + AsyncWrite> ServerProto<T> for IntProto {
 //!     type Request = u64;
 //!     type Response = u64;
 //!     type Transport = Framed<T, IntCodec>;
 //!     type BindTransport = Result<Self::Transport, io::Error>;
 //!
 //!     fn bind_transport(&self, io: T) -> Self::BindTransport {
-//!         Ok(io.framed(IntCodec))
+//!         Ok(IntCodec.framed(io))
 //!     }
 //! }
 //!
@@ -155,11 +165,11 @@
 //!     type Request = u64;
 //!     type Response = u64;
 //!     type Error = io::Error;
-//!     type Future = BoxFuture<u64, io::Error>;
+//!     type Future = Box<dyn Future<Item = u64, Error = io::Error>>;
 //!
 //!     fn call(&self, req: u64) -> Self::Future {
 //!         // Just return the request, doubled
-//!         future::finished(req * 2).boxed()
+//!         Box::new(future::finished(req * 2))
 //!     }
 //! }
 //!
@@ -172,13 +182,11 @@
 //! ```
 
 #![doc(html_root_url = "https://docs.rs/tokio-proto/0.1")]
-#![deny(warnings, missing_docs, missing_debug_implementations)]
-#![allow(deprecated)] // TODO remove this
+#![cfg_attr(feature = "strict", deny(warnings, missing_docs, missing_debug_implementations))]
 
 extern crate net2;
 extern crate smallvec;
-extern crate tokio_core;
-extern crate tokio_io;
+extern crate tokio;
 extern crate tokio_service;
 
 #[macro_use]
@@ -199,7 +207,6 @@ pub use tcp_client::{TcpClient, Connect};
 mod tcp_server;
 pub use tcp_server::TcpServer;
 
-use futures::future::{Executor, Future};
 use tokio_service::Service;
 
 // TODO: move this into futures-rs
@@ -235,11 +242,10 @@ pub trait BindServer<Kind, T: 'static>: 'static {
     ///
     /// This method should spawn a new task on the given event loop handle which
     /// provides the given service on the given I/O object.
-    fn bind_server<S, E>(&self, executor: &E, io: T, service: S)
+    fn bind_server<S>(&self, io: T, service: S)
         where S: Service<Request = Self::ServiceRequest,
                          Response = Self::ServiceResponse,
-                         Error = Self::ServiceError> + 'static,
-              E: Executor<Box<Future<Item = (), Error = ()>>>;
+                         Error = Self::ServiceError> + 'static;
 }
 
 /// Binds an I/O object as a client of a service.
@@ -274,6 +280,5 @@ pub trait BindClient<Kind, T: 'static>: 'static {
                              Error = Self::ServiceError>;
 
     /// Bind an I/O object as a service.
-    fn bind_client<E>(&self, executor: &E, io: T) -> Self::BindClient
-        where E: Executor<Box<Future<Item = (), Error = ()>>>;
+    fn bind_client(&self, io: T) -> Self::BindClient;
 }

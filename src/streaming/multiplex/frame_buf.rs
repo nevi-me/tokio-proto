@@ -218,7 +218,7 @@ impl<T> Inner<T> {
         }
 
         // Check that the number of allocated elements is a power of two
-        debug_assert!(self.allocated & self.allocated - 1 == 0);
+        debug_assert!(self.allocated & (self.allocated - 1) == 0);
 
         let new_block_cap = self.allocated;
 

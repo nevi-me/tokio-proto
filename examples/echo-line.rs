@@ -1,7 +1,6 @@
 
 extern crate tokio_proto;
-extern crate tokio_core;
-extern crate tokio_io;
+extern crate tokio;
 extern crate futures;
 extern crate tokio_service;
 extern crate bytes;
@@ -10,8 +9,8 @@ use std::io;
 
 use futures::future;
 use futures::future::FutureResult;
-use tokio_io::{AsyncRead, AsyncWrite};
-use tokio_io::codec::{Framed, Encoder, Decoder};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::codec::{Framed, Encoder, Decoder};
 use bytes::BytesMut;
 use tokio_proto::TcpServer;
 use tokio_proto::pipeline::ServerProto;
@@ -63,7 +62,7 @@ impl<T: AsyncRead + AsyncWrite + 'static> ServerProto<T> for LineProto {
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(LineCodec))
+        Ok(LineCodec.framed(io))
     }
 }
 

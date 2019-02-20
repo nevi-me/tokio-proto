@@ -4,8 +4,8 @@
 
 use std::io;
 use futures::{Stream, Sink, Async};
-use tokio_core::io as old_io;
-use tokio_io as new_io;
+use tokio::codec::{Framed, Encoder, Decoder};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 mod frame_buf;
 
@@ -46,33 +46,24 @@ pub trait Transport<ReadBody>: 'static +
     fn tick(&mut self) {}
 
     /// Cancel interest in the exchange identified by RequestId
-    fn cancel(&mut self, request_id: RequestId) -> io::Result<()> {
-        drop(request_id);
+    fn cancel(&mut self, _request_id: RequestId) -> io::Result<()> {
         Ok(())
     }
 
     /// Tests to see if this I/O object may accept a body frame for the given
     /// request ID
-    fn poll_write_body(&mut self, id: RequestId) -> Async<()> {
-        drop(id);
+    fn poll_write_body(&mut self, _id: RequestId) -> Async<()> {
         Async::Ready(())
     }
 
     /// Invoked before the multiplexer dispatches the body chunk to the body
     /// stream.
-    fn dispatching_body(&mut self, id: RequestId, body: &ReadBody) {
-        drop(id);
-        drop(body);
+    fn dispatching_body(&mut self, _id: RequestId, _body: &ReadBody) {
     }
 }
 
-impl<T, C, ReadBody> Transport<ReadBody> for old_io::Framed<T,C>
-    where T: old_io::Io + 'static,
-          C: old_io::Codec + 'static,
-{}
-
-impl<T, C, ReadBody> Transport<ReadBody> for new_io::codec::Framed<T,C>
-    where T: new_io::AsyncRead + new_io::AsyncWrite + 'static,
-          C: new_io::codec::Encoder<Error=io::Error> +
-                new_io::codec::Decoder<Error=io::Error> + 'static,
+impl<T, C, ReadBody> Transport<ReadBody> for Framed<T,C>
+    where T: AsyncRead + AsyncWrite + 'static,
+          C: Encoder<Error=io::Error> +
+                Decoder<Error=io::Error> + 'static,
 {}

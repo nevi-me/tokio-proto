@@ -1,5 +1,5 @@
 extern crate futures;
-extern crate tokio_core;
+extern crate tokio;
 extern crate tokio_proto;
 extern crate tokio_service;
 extern crate env_logger;
@@ -9,12 +9,12 @@ use std::thread;
 use std::cell::RefCell;
 use std::io::{self, Read, Write};
 
+use self::futures::future::lazy;
 use self::futures::stream::Wait;
 use self::futures::sync::mpsc;
 use self::futures::sync::oneshot;
 use self::futures::{Future, Stream, Sink, Poll, StartSend, Async};
-use self::tokio_core::io::Io;
-use self::tokio_core::reactor::Core;
+use self::tokio::runtime::current_thread::Runtime;
 use self::tokio_proto::streaming::multiplex;
 use self::tokio_proto::streaming::pipeline;
 use self::tokio_proto::streaming::{Message, Body};
@@ -27,7 +27,7 @@ struct MockProtocol<T>(RefCell<Option<MockTransport<T>>>);
 impl<T, U, I> pipeline::ClientProto<I> for MockProtocol<pipeline::Frame<T, U, io::Error>>
     where T: 'static,
           U: 'static,
-          I: Io + 'static,
+          I: 'static,
 {
     type Request = T;
     type RequestBody = U;
@@ -46,7 +46,7 @@ impl<T, U, I> pipeline::ClientProto<I> for MockProtocol<pipeline::Frame<T, U, io
 impl<T, U, I> multiplex::ClientProto<I> for MockProtocol<multiplex::Frame<T, U, io::Error>>
     where T: 'static,
           U: 'static,
-          I: Io + 'static,
+          I: 'static,
 {
     type Request = T;
     type RequestBody = U;
@@ -65,7 +65,7 @@ impl<T, U, I> multiplex::ClientProto<I> for MockProtocol<multiplex::Frame<T, U, 
 impl<T, U, I> pipeline::ServerProto<I> for MockProtocol<pipeline::Frame<T, U, io::Error>>
     where T: 'static,
           U: 'static,
-          I: Io + 'static,
+          I: 'static,
 {
     type Request = T;
     type RequestBody = U;
@@ -84,7 +84,7 @@ impl<T, U, I> pipeline::ServerProto<I> for MockProtocol<pipeline::Frame<T, U, io
 impl<T, U, I> multiplex::ServerProto<I> for MockProtocol<multiplex::Frame<T, U, io::Error>>
     where T: 'static,
           U: 'static,
-          I: Io + 'static,
+          I: 'static,
 {
     type Request = T;
     type RequestBody = U;
@@ -153,8 +153,6 @@ impl Write for MockIo {
     }
 }
 
-impl Io for MockIo {}
-
 pub type MockBodyStream = Box<Stream<Item = u32, Error = io::Error> + Send>;
 
 pub struct MockTransportCtl<T> {
@@ -218,19 +216,21 @@ pub fn pipeline_client()
                                               io::Error>>>,
         Box<Any>)
 {
-    drop(env_logger::init());
+    drop(env_logger::try_init());
 
     let (ctl, proto) = transport();
 
     let (tx, rx) = oneshot::channel();
     let (finished_tx, finished_rx) = oneshot::channel();
     let t = thread::spawn(move || {
-        let mut core = Core::new().unwrap();
-        let handle = core.handle();
+        let mut core = Runtime::new().unwrap();
 
-        let service = proto.bind_client(&handle, MockIo);
-        tx.complete(service);
-        drop(core.run(finished_rx));
+        let main_future = lazy(move || {
+            let service = proto.bind_client(MockIo);
+            tx.complete(service);
+            finished_rx
+        });
+        drop(core.block_on(main_future));
     });
 
     let service = rx.wait().unwrap();
@@ -248,17 +248,19 @@ pub fn pipeline_server<S>(s: S)
                      Response = Message<&'static str, MockBodyStream>,
                      Error = io::Error> + Send + 'static,
 {
-    drop(env_logger::init());
+    drop(env_logger::try_init());
 
     let (ctl, proto) = transport();
 
     let (finished_tx, finished_rx) = oneshot::channel();
     let t = thread::spawn(move || {
-        let mut core = Core::new().unwrap();
-        let handle = core.handle();
+        let mut core = Runtime::new().unwrap();
 
-        proto.bind_server(&handle, MockIo, s);
-        drop(core.run(finished_rx));
+        let main_future = lazy(move || {
+            proto.bind_server(MockIo, s);
+            finished_rx
+        });
+        drop(core.block_on(main_future));
     });
 
     let srv = CompleteOnDrop {
@@ -277,19 +279,21 @@ pub fn multiplex_client()
                                               io::Error>>>,
         Box<Any>)
 {
-    drop(env_logger::init());
+    drop(env_logger::try_init());
 
     let (ctl, proto) = transport();
 
     let (tx, rx) = oneshot::channel();
     let (finished_tx, finished_rx) = oneshot::channel();
     let t = thread::spawn(move || {
-        let mut core = Core::new().unwrap();
-        let handle = core.handle();
+        let mut core = Runtime::new().unwrap();
 
-        let service = proto.bind_client(&handle, MockIo);
-        tx.complete(service);
-        drop(core.run(finished_rx));
+        let main_future = lazy(move || {
+            let service = proto.bind_client(MockIo);
+            tx.complete(service);
+            finished_rx
+        });
+        drop(core.block_on(main_future));
     });
 
     let service = rx.wait().unwrap();
@@ -307,17 +311,20 @@ pub fn multiplex_server<S>(s: S)
                      Response = Message<&'static str, MockBodyStream>,
                      Error = io::Error> + Send + 'static,
 {
-    drop(env_logger::init());
+    drop(env_logger::try_init());
 
     let (ctl, proto) = transport();
 
     let (finished_tx, finished_rx) = oneshot::channel();
     let t = thread::spawn(move || {
-        let mut core = Core::new().unwrap();
-        let handle = core.handle();
+        let mut core = Runtime::new().unwrap();
 
-        proto.bind_server(&handle, MockIo, s);
-        drop(core.run(finished_rx));
+        let main_future = lazy(move ||{
+            proto.bind_server(MockIo, s);
+            finished_rx
+        });
+        
+        drop(core.block_on(main_future));
     });
 
     let srv = CompleteOnDrop {

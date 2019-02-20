@@ -8,8 +8,9 @@ use BindServer;
 use futures::stream::Stream;
 use futures::future::{Then, Future};
 use net2;
-use tokio_core::net::{TcpStream, TcpListener};
-use tokio_core::reactor::{Core, Handle};
+use tokio::net::{TcpStream, TcpListener};
+use tokio::reactor::Handle;
+use tokio::runtime::current_thread::Runtime;
 use tokio_service::{NewService, Service};
 
 // TODO: Add more options, e.g.:
@@ -181,17 +182,17 @@ fn serve<P, Kind, F, S>(binder: Arc<P>, addr: SocketAddr, workers: usize, new_se
         }
     }
 
-    let mut core = Core::new().unwrap();
-    let handle = core.handle();
+    let mut core = Runtime::new().unwrap();
+    let handle = Handle::default();
     let new_service = new_service(&handle);
     let listener = listener(&addr, workers, &handle).unwrap();
 
-    let server = listener.incoming().for_each(move |(socket, _)| {
+    let server = listener.incoming().for_each(move |socket| {
         // Create the service
         let service = try!(new_service.new_service());
 
         // Bind it!
-        binder.bind_server(&handle, socket, WrapService {
+        binder.bind_server(socket, WrapService {
             inner: service,
             _marker: PhantomData,
         });
@@ -199,7 +200,7 @@ fn serve<P, Kind, F, S>(binder: Arc<P>, addr: SocketAddr, workers: usize, new_se
         Ok(())
     });
 
-    core.run(server).unwrap();
+    core.block_on(server).unwrap();
 }
 
 fn listener(addr: &SocketAddr,
@@ -213,7 +214,7 @@ fn listener(addr: &SocketAddr,
     try!(listener.reuse_address(true));
     try!(listener.bind(addr));
     listener.listen(1024).and_then(|l| {
-        TcpListener::from_listener(l, addr, handle)
+        TcpListener::from_std(l, handle)
     })
 }
 

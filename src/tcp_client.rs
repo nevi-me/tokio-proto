@@ -4,8 +4,7 @@ use std::net::SocketAddr;
 use std::marker::PhantomData;
 
 use BindClient;
-use tokio_core::reactor::Handle;
-use tokio_core::net::{TcpStream, TcpStreamNew};
+use tokio::net::{TcpStream, tcp::ConnectFuture};
 use futures::{Future, Poll, Async};
 
 // TODO: add configuration, e.g.:
@@ -35,8 +34,7 @@ pub struct TcpClient<Kind, P> {
 pub struct Connect<Kind, P> {
     _kind: PhantomData<Kind>,
     proto: Arc<P>,
-    socket: TcpStreamNew,
-    handle: Handle,
+    socket: ConnectFuture,
 }
 
 impl<Kind, P> Future for Connect<Kind, P> where P: BindClient<Kind, TcpStream> {
@@ -45,7 +43,7 @@ impl<Kind, P> Future for Connect<Kind, P> where P: BindClient<Kind, TcpStream> {
 
     fn poll(&mut self) -> Poll<P::BindClient, io::Error> {
         let socket = try_ready!(self.socket.poll());
-        Ok(Async::Ready(self.proto.bind_client(&self.handle, socket)))
+        Ok(Async::Ready(self.proto.bind_client(socket)))
     }
 }
 
@@ -68,12 +66,11 @@ impl<Kind, P> TcpClient<Kind, P> where P: BindClient<Kind, TcpStream> {
     /// Returns a future for the establishment of the connection. When the
     /// future completes, it yields an instance of `Service` for interacting
     /// with the server.
-    pub fn connect(&self, addr: &SocketAddr, handle: &Handle) -> Connect<Kind, P> {
+    pub fn connect(&self, addr: &SocketAddr) -> Connect<Kind, P> {
         Connect {
             _kind: PhantomData,
             proto: self.proto.clone(),
-            socket: TcpStream::connect(addr, handle),
-            handle: handle.clone(),
+            socket: TcpStream::connect(addr),
         }
     }
 }

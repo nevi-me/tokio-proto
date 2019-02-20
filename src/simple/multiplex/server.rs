@@ -10,7 +10,6 @@ use streaming::{self, Message};
 use streaming::multiplex::StreamingMultiplex;
 use tokio_service::Service;
 use futures::{stream, Stream, Sink, Future, IntoFuture, Poll};
-use futures::future::Executor;
 
 type MyStream<E> = stream::Empty<(), E>;
 
@@ -57,14 +56,13 @@ impl<T: 'static, P: ServerProto<T>> BindServer<Multiplex, T> for P {
     type ServiceResponse = P::Response;
     type ServiceError = io::Error;
 
-    fn bind_server<S, E>(&self, executor: &E, io: T, service: S)
+    fn bind_server<S>(&self, io: T, service: S)
         where S: Service<Request = Self::ServiceRequest,
                          Response = Self::ServiceResponse,
-                         Error = Self::ServiceError> + 'static,
-              E: Executor<Box<Future<Item = (), Error = ()>>>
+                         Error = Self::ServiceError> + 'static
     {
         BindServer::<StreamingMultiplex<MyStream<io::Error>>, T>::bind_server(
-            LiftProto::from_ref(self), executor, io, LiftService(service)
+            LiftProto::from_ref(self), io, LiftService(service)
         )
     }
 }

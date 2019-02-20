@@ -1,7 +1,6 @@
 #![allow(deprecated)]
 
 extern crate futures;
-extern crate tokio_core;
 extern crate tokio_proto;
 extern crate tokio_service;
 extern crate rand;
@@ -271,7 +270,7 @@ fn test_reaching_max_in_flight_requests() {
 
     // Complete pending requests
     for (i, c) in responses.drain(..) {
-        c.complete((Ok(Message::WithoutBody("zomg"))));
+        c.complete(Ok(Message::WithoutBody("zomg")));
 
         let wr = mock.next_write();
         assert_eq!(i, wr.request_id());

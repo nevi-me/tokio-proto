@@ -5,9 +5,9 @@ use super::advanced::{Pipeline, PipelineMessage};
 use util::client_proxy::{self, ClientProxy, Receiver};
 use futures::{Future, IntoFuture, Poll, Async, Stream};
 use futures::sync::oneshot;
-use futures::future::Executor;
 use std::collections::VecDeque;
 use std::io;
+use tokio::runtime::current_thread;
 
 /// A streaming, pipelined client protocol.
 ///
@@ -59,8 +59,7 @@ impl<P, T, B> BindClient<StreamingPipeline<B>, T> for P where
 
     type BindClient = ClientProxy<Self::ServiceRequest, Self::ServiceResponse, Self::ServiceError>;
 
-    fn bind_client<E>(&self, executor: &E, io: T) -> Self::BindClient
-        where E: Executor<Box<Future<Item = (), Error = ()>>>
+    fn bind_client(&self, io: T) -> Self::BindClient
     {
         let (client, rx) = client_proxy::pair();
 
@@ -77,8 +76,7 @@ impl<P, T, B> BindClient<StreamingPipeline<B>, T> for P where
         });
 
         // Spawn the task
-        executor.execute(Box::new(task))
-            .expect("failed to spawn task");
+        current_thread::spawn(task);
 
         // Return the client
         client
